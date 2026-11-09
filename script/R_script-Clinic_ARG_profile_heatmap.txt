@@ -1,0 +1,250 @@
+library(tidyverse)
+library(patchwork)
+library(grid)
+library(scales)
+
+# =========================
+# 1. Read data
+# =========================
+df <- read.csv("Clinic_ARG_profile_heatmap.csv", check.names = FALSE)
+
+colnames(df)[1] <- "gene"
+
+# Convert plasmid_frac_reads to numeric
+df$plasmid_frac_reads <- as.numeric(
+    gsub("%", "", df$plasmid_frac_reads)
+)
+
+# If plasmid_frac_reads is 0–100, convert to 0–1
+if(max(df$plasmid_frac_reads, na.rm = TRUE) > 1) {
+    df$plasmid_frac_reads <- df$plasmid_frac_reads / 100
+}
+
+# =========================
+# 2. Drug class colors
+# =========================
+drug_class_colors <- c(
+    "Aminoglycoside" = "#D55E00",
+    "Bacitracin"     = "#0072B2",
+    "Beta-lactam"    = "#009E73",
+    "Biocide"        = "#CC79A7",
+    "Colistin"       = "#E69F00",
+    "Defensin"       = "#56B4E9",
+    "Fosfomycin"     = "#F0E442",
+    "MLS"            = "#000000",
+    "Multidrug"      = "#999999",
+    "Phenicol"       = "#8B4513",
+    "Quinolone"      = "#6A3D9A",
+    "Rifamycin"      = "#FF1493",
+    "Tetracycline"   = "#1B9E77",
+    "Streptothricin" = "#A6CEE3",
+    "Bacteriocin"    = "blue",
+    "Sulfonamide"    = "#FB9A99",
+    "Trimethoprim"   = "#33A02C",
+    "Fusidic acid"   = "#CAB2D6"
+)
+
+# =========================
+# 3. Add spacer columns every 9 samples
+# =========================
+sample_cols <- colnames(df)[-(1:3)]
+
+new_order <- c()
+
+for(i in seq_along(sample_cols)) {
+    new_order <- c(new_order, sample_cols[i])
+    
+    if(i %% 9 == 0 && i != length(sample_cols)) {
+        spacer_name <- paste0("spacer_", i)
+        df[[spacer_name]] <- NA
+        new_order <- c(new_order, spacer_name)
+    }
+}
+
+df <- df[, c("gene", "drug_class", "plasmid_frac_reads", new_order)]
+
+# =========================
+# 4. Convert abundance data to long format
+# =========================
+sample_order <- colnames(df)[-(1:3)]
+gene_order <- rev(df$gene)
+
+df_long <- df %>%
+    pivot_longer(
+        cols = all_of(sample_order),
+        names_to = "sample",
+        values_to = "cpg"
+    ) %>%
+    mutate(
+        gene = factor(gene, levels = gene_order),
+        sample = factor(sample, levels = sample_order)
+    )
+
+x_labels <- ifelse(grepl("spacer_", sample_order), "", sample_order)
+names(x_labels) <- sample_order
+
+anno_df <- df %>%
+    select(gene, drug_class, plasmid_frac_reads) %>%
+    mutate(
+        gene = factor(gene, levels = gene_order)
+    )
+
+# =========================
+# 5. Drug-class annotation
+# =========================
+p_drug <- ggplot(
+    anno_df,
+    aes(
+        x = "Drug class",
+        y = gene,
+        fill = drug_class
+    )
+) +
+    geom_tile(color = "white", linewidth = 0.3) +
+    
+    scale_fill_manual(
+        values = drug_class_colors,
+        name = "Drug class"
+    ) +
+    
+    labs(x = NULL, y = NULL) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.x = element_text(
+            angle = 45,
+            hjust = 1,
+            face = "bold"
+        ),
+        axis.text.y = element_text(size = 11, face = "italic"),
+        axis.ticks = element_blank(),
+        axis.line = element_blank(),
+        legend.position = "right"
+    )
+
+# =========================
+# 6. Plasmid fraction barplot
+# =========================
+p_plasmid <- ggplot(
+    anno_df,
+    aes(
+        y = gene,
+        x = plasmid_frac_reads
+    )
+) +
+    geom_col(
+        fill = "#2b8cbe",
+        width = 0.8
+    ) +
+    
+    scale_x_continuous(
+        limits = c(0, 1),
+        breaks = c(0, 0.25, 0.50, 0.75, 1.00),
+        labels = percent_format(accuracy = 1),
+        expand = c(0, 0)
+    ) +
+    
+    labs(
+        x = "Plasmid fraction",
+        y = NULL
+    ) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        
+        axis.text.x = element_text(
+            size = 8,
+            angle = 45,
+            hjust = 1
+        ),
+        
+        axis.title.x = element_text(size = 10),
+        
+        axis.line.y = element_blank(),
+        panel.grid = element_blank()
+    )
+
+# =========================
+# 7. Main abundance heatmap
+# =========================
+p_heat <- ggplot(
+    df_long,
+    aes(
+        x = sample,
+        y = gene,
+        fill = cpg
+    )
+) +
+    geom_tile(color = "white", linewidth = 0.25) +
+    
+    scale_x_discrete(labels = x_labels) +
+    
+    scale_fill_gradientn(
+        colours = c(
+            "#ffffff",
+            "#f1eef6",
+            "#d7b5d8",
+            "#df65b0",
+            "#dd1c77",
+            "#980043"
+        ),
+        
+        trans = pseudo_log_trans(sigma = 0.01),
+        
+        na.value = "white",
+        
+        name = "Abundance (cpg)",
+        
+        guide = guide_colorbar(
+            barheight = unit(6, "cm"),
+            barwidth = unit(0.5, "cm")
+        )
+    ) +
+    
+    labs(x = NULL, y = NULL) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.x = element_text(
+            angle = 45,
+            hjust = 1,
+            vjust = 1,
+            size = 9
+        ),
+        
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        
+        axis.ticks.x = element_line(
+            color = "gray40",
+            linewidth = 0.4
+        ),
+        
+        axis.ticks.length.x = unit(0.08, "cm"),
+        
+        axis.line = element_blank(),
+        
+        panel.border = element_rect(
+            color = "gray50",
+            fill = NA,
+            linewidth = 0.8
+        ),
+        
+        legend.position = "right",
+        legend.title = element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 10)
+    )
+
+# =========================
+# 8. Combine plots
+# =========================
+p_combined <- p_drug + p_plasmid + p_heat +
+    plot_layout(
+        widths = c(1.1, 2.2, 12),
+        guides = "collect"
+    ) &
+    theme(legend.position = "right")
+
+p_combined

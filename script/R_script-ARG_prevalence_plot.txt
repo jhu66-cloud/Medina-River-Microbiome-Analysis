@@ -1,0 +1,391 @@
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(patchwork)
+
+df <- read.csv("ARG_prevalence.csv", check.names = FALSE)
+
+df <- df %>%
+    rename(
+        gene = gene,
+        drug_class = drug_class,
+        percent_samples = `% of samples`,
+        prevalence_class = prevalence_class,
+        plasmid_frac_reads = plasmid_frac_reads,
+        sum_of_cpg = sum_of_cpg
+    )
+
+top40 <- df %>%
+    arrange(desc(percent_samples)) %>%
+    slice_head(n = 40) %>%
+    mutate(
+        gene = factor(gene, levels = rev(gene)),
+        y_pos = as.numeric(gene)
+    )
+
+label_y <- max(top40$y_pos) + 1.1
+
+# =========================
+# Main lollipop plot
+# =========================
+p_main <- ggplot(
+    top40,
+    aes(
+        y = y_pos,
+        x = percent_samples,
+        color = drug_class
+    )
+) +
+    geom_segment(
+        aes(x = 0, xend = percent_samples, y = y_pos, yend = y_pos),
+        linewidth = 0.9
+    ) +
+    geom_point(
+        aes(size = plasmid_frac_reads),
+        alpha = 1
+    ) +
+    geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", linewidth = 0.8) +
+    geom_vline(xintercept = 50, linetype = "dotted", color = "orange", linewidth = 0.8) +
+    geom_vline(xintercept = 80, linetype = "dotted", color = "red", linewidth = 0.8) +
+    
+    annotate("text", x = 8, y = label_y, label = "Rare: <20%",
+             color = "gray40", hjust = 0, size = 3.5, fontface = "bold") +
+    annotate("text", x = 52, y = label_y, label = "Common: ≥50%",
+             color = "orange", hjust = 0, size = 3.5, fontface = "bold") +
+    annotate("text", x = 82, y = label_y, label = "Core: ≥80%",
+             color = "red", hjust = 0, size = 3.5, fontface = "bold") +
+    
+    scale_color_manual(values = c(
+        "Aminoglycoside" = "#D55E00",
+        "Bacitracin"     = "#0072B2",
+        "Beta-lactam"    = "#009E73",
+        "Biocide"        = "#CC79A7",
+        "Colistin"       = "#E69F00",
+        "Defensin"       = "#56B4E9",
+        "Fosfomycin"     = "#F0E442",
+        "MLS"            = "#000000",
+        "Multidrug"      = "#999999",
+        "Phenicol"       = "#8B4513",
+        "Quinolone"      = "#6A3D9A",
+        "Rifamycin"      = "#FF1493",
+        "Tetracycline"   = "#1B9E77"
+    )) +
+    
+    scale_size_continuous(
+        name = "Plasmid reads fraction",
+        range = c(2, 8),
+        limits = c(0, 0.20),
+        breaks = seq(0, 0.20, 0.05),
+        labels = percent_format(accuracy = 1)
+    ) +
+    
+    guides(
+        color = guide_legend(order = 1),
+        size = guide_legend(
+            order = 2,
+            override.aes = list(color = "gray40")
+        )
+    ) +
+    
+    scale_y_continuous(
+        breaks = top40$y_pos,
+        labels = top40$gene,
+        limits = c(0.5, label_y + 0.6),
+        expand = c(0, 0)
+    ) +
+    
+    scale_x_continuous(
+        limits = c(0, 105),
+        breaks = seq(0, 100, 20),
+        expand = c(0, 0)
+    ) +
+    
+    labs(
+        x = "Percentage of samples (%)",
+        y = NULL,
+        color = "Drug class"
+    ) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.y = element_text(size = 11, face = "italic"),
+        axis.text.x = element_text(size = 12),
+        axis.title.x = element_text(size = 14, margin = margin(t = 12)),
+        panel.grid.major.x = element_line(color = "gray90"),
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        legend.title = element_text(size = 13, face = "bold"),
+        legend.text = element_text(size = 11)
+    )
+
+# =========================
+# Side heatmap for sum_of_cpg
+# =========================
+p_heat <- ggplot(
+    top40,
+    aes(
+        x = "Sum of cpg",
+        y = y_pos,
+        fill = sum_of_cpg
+    )
+) +
+    geom_tile(color = "white", linewidth = 0.4) +
+    
+    scale_y_continuous(
+        limits = c(0.5, label_y + 0.6),
+        expand = c(0, 0)
+    ) +
+    
+    scale_fill_gradientn(
+        colours = c(
+            "white",
+            "#d9f0f3",
+            "#9bc7d5",
+            "#5fa3b2",
+            "#1f7a83",
+            "#005f64"
+        ),limits = c(0, 4),breaks = seq(0, 4,1),
+        name = "Abundance (cpg)"
+    ) +
+    
+    labs(x = NULL, y = NULL) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.text.x = element_text(size = 11, face = "bold", angle = 45, hjust = 1),
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank(),
+        legend.position = "right",
+        legend.title = element_text(size = 13, face = "bold"),
+        legend.text = element_text(size = 11)
+    )
+
+# =========================
+# Combine plots
+# =========================
+p_combined <- p_main + p_heat +
+    plot_layout(widths = c(8, 0.7), guides = "collect") &
+    theme(legend.position = "right")
+
+p_combined
+# =========================
+# 4. Save figure
+# =========================
+ggsave(
+    "Top40_ARG_prevalence_lollipop.tiff",
+    plot = p,
+    width = 10,
+    height = 8,
+    dpi = 300,
+    compression = "lzw"
+)
+
+#------------------------------------------------------------------------------------------
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(patchwork)
+
+df <- read.csv("Clinic_ARG_prevalence.csv", check.names = FALSE)
+
+df <- df %>%
+    rename(
+        gene = gene,
+        drug_class = drug_class,
+        percent_samples = `% of samples`,
+        prevalence_class = prevalence_class,
+        plasmid_frac_reads = plasmid_frac_reads,
+        sum_of_cpg = sum_of_cpg
+    )
+
+top44_rare_intermediate <- df %>%
+    filter(percent_samples <= 50) %>%
+    arrange(desc(percent_samples)) %>%
+    slice_head(n = 44) %>%
+    mutate(
+        gene = factor(gene, levels = rev(gene)),
+        y_pos = as.numeric(gene)
+    )
+
+label_y <- max(top44_rare_intermediate$y_pos) + 1.1
+
+drug_class_colors <- c(
+    "Aminoglycoside" = "#D55E00",
+    "Bacitracin"     = "#0072B2",
+    "Beta-lactam"    = "#009E73",
+    "Biocide"        = "#CC79A7",
+    "Colistin"       = "#E69F00",
+    "Defensin"       = "#56B4E9",
+    "Fosfomycin"     = "#F0E442",
+    "MLS"            = "#000000",
+    "Multidrug"      = "#999999",
+    "Phenicol"       = "#8B4513",
+    "Quinolone"      = "#6A3D9A",
+    "Rifamycin"      = "#FF1493",
+    "Tetracycline"   = "#1B9E77",
+    "Streptothricin" = "#A6CEE3",
+    "Bacteriocin"    = "blue",
+    "Sulfonamide"    = "#FB9A99",
+    "Trimethoprim"   = "#33A02C",
+    "Fusidic acid"   = "#CAB2D6"
+)
+
+p_main <- ggplot(
+    top44_rare_intermediate,
+    aes(
+        y = y_pos,
+        x = percent_samples,
+        color = drug_class
+    )
+) +
+    geom_segment(
+        aes(
+            x = 0,
+            xend = percent_samples,
+            y = y_pos,
+            yend = y_pos
+        ),
+        linewidth = 0.9
+    ) +
+    
+    geom_point(
+        aes(size = plasmid_frac_reads),
+        alpha = 1
+    ) +
+    
+    geom_vline(
+        xintercept = 20,
+        linetype = "dotted",
+        color = "gray40",
+        linewidth = 0.8
+    ) +
+    
+    geom_vline(
+        xintercept = 50,
+        linetype = "dotted",
+        color = "blue",
+        linewidth = 0.8
+    ) +
+    
+    annotate(
+        "text",
+        x = 15,
+        y = label_y,
+        label = "Rare: <20%",
+        color = "gray40",
+        hjust = 0,
+        size = 3.5,
+        fontface = "bold"
+    ) +
+    
+    annotate(
+        "text",
+        x = 42,
+        y = label_y,
+        label = "Intermediate: <50%",
+        color = "blue",
+        hjust = 0,
+        size = 3.5,
+        fontface = "bold"
+    ) +
+    
+    scale_color_manual(values = drug_class_colors) +
+    
+    scale_size_continuous(
+        name = "Plasmid reads fraction",
+        range = c(2, 8),
+        breaks = c(0.2, 0.4, 0.6, 0.8, 1.0),
+        labels = percent_format(accuracy = 1)
+    ) +
+    
+    scale_y_continuous(
+        breaks = top44_rare_intermediate$y_pos,
+        labels = top44_rare_intermediate$gene,
+        limits = c(0.5, label_y + 0.6),
+        expand = c(0, 0)
+    ) +
+    
+    scale_x_continuous(
+        limits = c(0, 50),
+        breaks = seq(0, 50, 10),
+        expand = c(0, 0)
+    ) +
+    
+    labs(
+        x = "Percentage of samples (%)",
+        y = NULL,
+        color = "Drug class"
+    ) +
+    
+    guides(
+        color = guide_legend(order = 1),
+        size = guide_legend(
+            order = 2,
+            override.aes = list(color = "gray40")
+        )
+    ) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.y = element_text(size = 11, face = "italic"),
+        axis.text.x = element_text(size = 12),
+        axis.title.x = element_text(size = 14, margin = margin(t = 12)),
+        panel.grid.major.x = element_line(color = "gray90"),
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        legend.title = element_text(size = 13, face = "bold"),
+        legend.text = element_text(size = 11)
+    )
+
+p_heat <- ggplot(
+    top44_rare_intermediate,
+    aes(
+        x = "Sum of cpg",
+        y = y_pos,
+        fill = log10(sum_of_cpg + 1)
+    )
+) +
+    geom_tile(color = "white", linewidth = 0.4) +
+    
+    scale_y_continuous(
+        limits = c(0.5, label_y + 0.6),
+        expand = c(0, 0)
+    ) +
+    
+    scale_fill_gradientn(
+        colours = c(
+            "#ffffff",  # white
+            "#e6d8f0",  # very light lavender
+            "#c2a5cf",  # light purple
+            "#9970ab",  # medium purple
+            "#6a3d9a",  # dark purple
+            "#3f007d"   # deep purple
+        ),
+        limits = c(0, 0.75),
+        breaks = seq(0, 0.75, 0.25),
+        name = "Abundance (cpg)"
+    ) +
+    
+    labs(x = NULL, y = NULL) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.text.x = element_text(size = 11, face = "bold", angle = 45, hjust = 1),
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank(),
+        legend.position = "right",
+        legend.title = element_text(size = 13, face = "bold"),
+        legend.text = element_text(size = 11)
+    )
+
+p_combined <- p_main + p_heat +
+    plot_layout(widths = c(8, 0.7), guides = "collect") &
+    theme(legend.position = "right")
+
+p_combined

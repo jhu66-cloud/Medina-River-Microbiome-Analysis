@@ -1,0 +1,154 @@
+library(tidyverse)
+library(grid)
+
+# =========================
+# 1. Read data
+# =========================
+df <- read.csv("Drug_class_profile.csv", check.names = FALSE)
+
+# Rename first column
+colnames(df)[1] <- "drug_class"
+
+# =========================
+# 2. Add spacer columns every 9 samples
+# =========================
+sample_cols <- colnames(df)[-1]
+
+new_order <- c()
+
+for(i in seq_along(sample_cols)) {
+    
+    new_order <- c(new_order, sample_cols[i])
+    
+    if(i %% 9 == 0 && i != length(sample_cols)) {
+        spacer_name <- paste0("spacer_", i)
+        df[[spacer_name]] <- NA
+        new_order <- c(new_order, spacer_name)
+    }
+}
+
+df <- df[, c("drug_class", new_order)]
+
+# =========================
+# 3. Convert to long format
+# =========================
+sample_order <- colnames(df)[-1]
+
+df_long <- df %>%
+    pivot_longer(
+        cols = -drug_class,
+        names_to = "sample",
+        values_to = "abundance"
+    ) %>%
+    mutate(
+        sample = factor(sample, levels = sample_order),
+        drug_class = factor(drug_class, levels = rev(unique(df$drug_class)))
+    )
+
+# Correct x-axis labels
+x_labels <- ifelse(grepl("spacer_", sample_order), "", sample_order)
+names(x_labels) <- sample_order
+
+# =========================
+# 4. Make heatmap
+# =========================
+p <- ggplot(df_long, aes(x = sample, y = drug_class, fill = abundance)) +
+    
+    geom_tile(color = "white", linewidth = 0.25) +
+    
+    scale_fill_gradientn(
+        colours = c(
+            "white",
+            "#eef5fb",
+            "#dceaf7",
+            "#c7dcf0",
+            "#b0cce7",
+            "#99bbdd",
+            "#86abd4",
+            "#7b97ca",
+            "#877fc0",
+            "#8f69b3",
+            "#934da3",
+            "#8b358f",
+            "#74207c",
+            "#5d0c68",
+            "#4b0055"
+        ),
+        
+        # nonlinear spacing improves resolution
+        values = scales::rescale(c(
+            0,
+            0.05,
+            0.1,
+            0.2,
+            0.3,
+            0.4,
+            0.5,
+            0.75,
+            1,
+            1.25,
+            1.5,
+            2,
+            2.5,
+            2.75,
+            3
+        )),
+        
+        limits = c(0, 3),
+        
+        breaks = seq(0, 3, 0.5),
+        
+        na.value = "white",
+        
+        name = "Abundance"
+    ) +
+    
+    scale_x_discrete(labels = x_labels) +
+    
+    labs(
+        x = NULL,
+        y = NULL,
+        fill = "Abundance"
+    ) +
+    
+    theme_classic(base_size = 14) +
+    theme(
+        axis.text.x = element_text(
+            angle = 45,
+            hjust = 1,
+            vjust = 1,
+            size = 10
+        ),
+        
+        axis.text.y = element_text(size = 12),
+        
+        axis.ticks.y = element_line(
+            color = "gray40",
+            linewidth = 0.8
+        ),
+        
+        axis.ticks.length.y = unit(0.15, "cm"),
+        
+        axis.ticks.x = element_line(
+            color = "gray40",
+            linewidth = 0.6
+        ),
+        
+        axis.ticks.length.x = unit(0.12, "cm"),
+        
+        axis.line = element_blank(),
+        
+        legend.position = "right",
+        legend.title = element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 10),
+        
+        panel.grid = element_blank(),
+        
+        panel.border = element_rect(
+            color = "gray50",
+            fill = NA,
+            linewidth = 1
+        )
+    )
+
+p

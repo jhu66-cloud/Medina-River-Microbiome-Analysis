@@ -1,0 +1,220 @@
+## Generate two plots: one based on site and one based on date, both using color to represent
+library(tidyverse)
+library(vegan)
+library(patchwork)
+
+# =========================
+# 1. Read ARG abundance table
+# =========================
+arg <- read.csv("ARG_table.csv", check.names = FALSE)
+
+# First column = ARG/gene names
+colnames(arg)[1] <- "gene"
+
+arg_mat <- arg %>%
+    column_to_rownames("gene") %>%
+    as.matrix()
+
+# Convert to numeric
+arg_mat <- apply(arg_mat, 2, as.numeric)
+
+# Restore rownames
+rownames(arg_mat) <- arg$gene
+
+# Replace NA with 0
+arg_mat[is.na(arg_mat)] <- 0
+
+# Samples as rows
+sample_mat <- t(arg_mat)
+
+# =========================
+# 2. Read metadata
+# =========================
+meta <- read.csv("Metadata.csv", check.names = FALSE)
+
+# Required columns:
+# sample, site, date
+
+meta <- meta %>%
+    mutate(
+        site = factor(
+            site,
+            levels = c(
+                "MP301", "MR306", "MR304",
+                "MR207", "MR205", "MR203",
+                "MR102", "MR1015", "MR101"
+            )
+        ),
+        
+        date = factor(
+            date,
+            levels = c(
+                "6/27/2024",
+                "7/25/2024",
+                "8/22/2024",
+                "9/26/2024",
+                "10/24/2024",
+                "11/19/2024",
+                "12/11/2024",
+                "1/30/2025",
+                "2/27/2025",
+                "3/27/2025",
+                "4/17/2025",
+                "5/22/2025"
+            )
+        )
+    )
+
+# Keep shared samples only
+common_samples <- intersect(
+    rownames(sample_mat),
+    meta$sample
+)
+
+sample_mat <- sample_mat[
+    common_samples,
+    ,
+    drop = FALSE
+]
+
+meta <- meta %>%
+    filter(sample %in% common_samples) %>%
+    arrange(match(sample, common_samples))
+
+# =========================
+# 3. NMDS analysis
+# =========================
+set.seed(123)
+
+nmds <- metaMDS(
+    sample_mat,
+    distance = "bray",
+    k = 2,
+    trymax = 100,
+    autotransform = FALSE
+)
+
+# =========================
+# 4. Extract NMDS coordinates
+# =========================
+nmds_df <- data.frame(
+    sample = rownames(sample_mat),
+    NMDS1 = nmds$points[, 1],
+    NMDS2 = nmds$points[, 2]
+) %>%
+    left_join(meta, by = "sample")
+
+# =========================
+# 5. Define colors
+# =========================
+site_colors <- c(
+    "MP301"  = "#1f78b4",
+    "MR306"  = "#33a02c",
+    "MR304"  = "#a6cee3",
+    "MR207"  = "#b2df8a",
+    "MR205"  = "#999999",
+    "MR203"  = "#fdbf6f",
+    "MR102"  = "#ff7f00",
+    "MR1015" = "#e31a1c",
+    "MR101"  = "#6a3d9a"
+)
+
+date_colors <- c(
+    "6/27/2024"  = "#fb8072",
+    "7/25/2024"  = "#b2182b",
+    "10/24/2024" = "#ffed6f",
+    "11/19/2024" = "#000000",
+    "12/11/2024" = "#8dd3c7",
+    "1/30/2025"  = "#b3de69",
+    "2/27/2025"  = "#bebada",
+    "3/27/2025"  = "#80b1d3",
+    "4/17/2025"  = "#bc80bd",
+    "5/22/2025"  = "#006837"
+)
+
+# =========================
+# 6. NMDS plot by site
+# =========================
+p_site <- ggplot(
+    nmds_df,
+    aes(
+        x = NMDS1,
+        y = NMDS2,
+        color = site
+    )
+) +
+    
+    geom_point(
+        size = 5,
+        alpha = 1
+    ) +
+    
+    scale_color_manual(values = site_colors) +
+    
+    labs(
+        title = paste0(
+            "NMDS by site; stress = ",
+            round(nmds$stress, 3)
+        ),
+        x = "NMDS1",
+        y = "NMDS2",
+        color = "Site"
+    ) +
+    
+    theme_bw(base_size = 14) +
+    
+    theme(
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(
+            face = "bold",
+            hjust = 0.5
+        )
+    )
+
+# =========================
+# 7. NMDS plot by date
+# =========================
+p_date <- ggplot(
+    nmds_df,
+    aes(
+        x = NMDS1,
+        y = NMDS2,
+        color = date
+    )
+) +
+    
+    geom_point(
+        size = 5,
+        alpha = 1
+    ) +
+    
+    scale_color_manual(values = date_colors) +
+    
+    labs(
+        title = paste0(
+            "NMDS by date; stress = ",
+            round(nmds$stress, 3)
+        ),
+        x = "NMDS1",
+        y = "NMDS2",
+        color = "Date"
+    ) +
+    
+    theme_bw(base_size = 14) +
+    
+    theme(
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(
+            face = "bold",
+            hjust = 0.5
+        )
+    )
+
+# =========================
+# 8. Combine plots
+# =========================
+combined_nmds <- p_site + p_date
+
+combined_nmds
+
+

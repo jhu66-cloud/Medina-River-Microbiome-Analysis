@@ -1,0 +1,141 @@
+library(dplyr)
+library(ggplot2)
+
+# =========================
+# 1. Read input data
+# =========================
+df <- read.csv(
+    "Temporal_ARG_abundance_diversity_plasmid.csv",
+    check.names = FALSE
+)
+
+# Remove empty columns if present
+df <- df[, colnames(df) != ""]
+
+# Convert percentage text to numeric
+# Example: "0.26%" becomes 0.26
+df$plasmid_ARG_percent <- as.numeric(
+    gsub("%", "", df$plasmid_ARG_percent)
+)
+
+# =========================
+# 2. Set site and timepoint order
+# =========================
+df <- df %>%
+    mutate(
+        site = factor(
+            site,
+            levels = c(
+                "MP301", "MR306", "MR304",
+                "MR207", "MR205", "MR203",
+                "MR102", "MR1015", "MR101"
+            )
+        ),
+        timepoint = factor(
+            timepoint,
+            levels = c("Jun", "Jul", "Oct", "Jan", "Mar", "May")
+        )
+    )
+
+# =========================
+# 3. Plot
+# =========================
+p <- ggplot(
+    df,
+    aes(
+        x = timepoint,
+        y = total_ARG_cpg,
+        group = site
+    )
+)  +
+    
+    geom_line(
+    color = "gray35",
+    linewidth = 1,
+    linetype = "dashed"
+) +
+    
+    geom_point(
+        aes(
+            size = unique_ARGs,
+            color = plasmid_ARG_percent
+        ),
+        alpha = 1
+    ) +
+    
+    facet_wrap(
+        ~ site,
+        ncol = 3
+    ) +
+    
+    scale_size_continuous(
+        name = "ARG diversity",
+        range = c(2.5, 10),
+        limits = c(0, 150),
+        breaks = c(25, 50, 75, 100, 125, 150)
+    ) +
+    
+    scale_color_gradientn(
+        colours = c(
+            "#fde725",
+            "#b5de2b",
+            "#6ece58",
+            "#35b779",
+            "#1f9e89",
+            "#26828e",
+            "#31688e",
+            "#3e4989",
+            "#482878",
+            "#440154"
+        ),
+        
+        values = scales::rescale(c(
+            0,
+            0.05,
+            0.1,
+            0.2,
+            0.35,
+            0.5,
+            0.8,
+            1.7,
+            2.0,
+            2.5
+        )),
+        
+        limits = c(0, 2.5),
+        
+        breaks = c(
+            0,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            2.5
+        ),
+        
+        name = "Plasmid ARG percentage (%)",
+        
+        guide = guide_colorbar(
+            barheight = unit(8, "cm"),
+            barwidth = unit(0.6, "cm")
+        )
+    ) +
+    
+    labs(
+        x = "Timepoint",
+        y = "Total ARG abundance (cpg)"
+    ) +
+    
+    theme_bw(base_size = 14) +
+    theme(
+        strip.background = element_blank(),
+        strip.text = element_text(size = 12, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.text.y = element_text(size = 11),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        panel.grid.minor = element_blank(),
+        legend.position = "right"
+    )
+
+p

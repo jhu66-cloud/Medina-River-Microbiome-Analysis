@@ -1,0 +1,70 @@
+library(tidyverse)
+library(vegan)
+library(pheatmap)
+
+# =========================
+# 1. Read ARG abundance table
+# =========================
+arg <- read.csv("ARG_table.csv", check.names = FALSE)
+
+# Assume first column is ARG/gene name
+colnames(arg)[1] <- "gene"
+
+# Set gene names as row names
+arg_mat <- arg %>%
+    column_to_rownames("gene") %>%
+    as.matrix()
+
+# Make sure all values are numeric
+arg_mat <- apply(arg_mat, 2, as.numeric)
+rownames(arg_mat) <- arg$gene
+
+# Replace NA with 0
+arg_mat[is.na(arg_mat)] <- 0
+
+# =========================
+# 2. Transpose table
+# Bray-Curtis should compare samples, so samples need to be rows
+# =========================
+sample_mat <- t(arg_mat)
+
+# =========================
+# 3. Calculate Bray-Curtis distance
+# =========================
+bray_dist <- vegdist(sample_mat, method = "bray")
+
+# Convert distance object to matrix
+bray_mat <- as.matrix(bray_dist)
+
+# =========================
+# 4. Save Bray-Curtis distance matrix
+# =========================
+write.csv(
+    bray_mat,
+    "Bray_Curtis_distance_matrix.csv"
+)
+
+# =========================
+# 5. Make distance heatmap
+# =========================
+pheatmap(
+    bray_mat,
+    
+    cluster_rows = FALSE,
+    cluster_cols = FALSE,
+    
+    color = colorRampPalette(c(
+        "white",
+        "#c6dbef",
+        "#6baed6",
+        "#2171b5",
+        "#08306b"
+    ))(100),
+    
+    border_color = NA,
+    
+    fontsize_row = 8,
+    fontsize_col = 8,
+    
+    main = "Bray-Curtis Distance Based on ARG Abundance"
+)
