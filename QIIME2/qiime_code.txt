@@ -1,0 +1,168 @@
+16S rRNA Amplicon Sequencing Data Processing
+===========================================
+
+Software: QIIME 2 (version 2024.10-Amplicon)
+Denoising: DADA2
+Input: Paired-end Illumina FASTQ files
+
+# 1. Import paired-end sequencing data
+
+qiime tools import \
+  --type 'SampleData[PairedEndSequencesWithQuality]' \
+  --input-path manifest.txt \
+  --output-path paired-end-demux.qza \
+  --input-format PairedEndFastqManifestPhred33
+
+
+# 2. Summarize sequence quality
+
+qiime demux summarize \
+  --i-data paired-end-demux.qza \
+  --o-visualization paired-end-demux.qzv
+
+
+# 3. DADA2 denoising, quality filtering,
+#    paired-end merging, and chimera removal
+
+qiime dada2 denoise-paired \
+  --p-n-threads 16 \
+  --i-demultiplexed-seqs paired-end-demux.qza \
+  --p-trim-left-f 19 \
+  --p-trim-left-r 23 \
+  --p-trunc-len-f 280 \
+  --p-trunc-len-r 260 \
+  --o-table feature_table.qza \
+  --o-representative-sequences rep-seqs.qza \
+  --o-denoising-stats denoising_stats.qza
+
+
+# 4. Remove ASVs with fewer than 2 total reads
+
+qiime feature-table filter-features \
+  --i-table feature_table.qza \
+  --p-min-frequency 2 \
+  --o-filtered-table filtered_feature_table.qza
+
+qiime feature-table filter-seqs \
+  --i-data rep-seqs.qza \
+  --i-table filtered_feature_table.qza \
+  --o-filtered-data filtered_rep-seqs.qza
+
+
+# 5. Summarize filtered ASV table and denoising statistics
+
+qiime feature-table summarize \
+  --i-table filtered_feature_table.qza \
+  --o-visualization filtered_feature_table.qzv
+
+qiime metadata tabulate \
+  --m-input-file denoising_stats.qza \
+  --o-visualization denoising_stats.qzv
+
+
+# 6. Export ASV abundance table
+
+qiime tools export \
+  --input-path filtered_feature_table.qza \
+  --output-path exported_table
+
+biom convert \
+  -i exported_table/feature-table.biom \
+  -o ASV_table.tsv \
+  --to-tsv
+
+
+# 7. Export representative ASV sequences
+
+qiime tools export \
+  --input-path filtered_rep-seqs.qza \
+  --output-path exported_sequences
+
+# Exported FASTA: exported_sequences/dna-sequences.fasta
+
+
+# Notes
+# - Manifest file contains sample IDs and paired-end FASTQ paths.
+# - DADA2 parameters reflect the settings used in this study.
+# - ASVs with total frequency <2 were removed.
+# - Output: ASV abundance table and representative sequences.
+
+# Taxonomy analysis
+qiime feature-classifier classify-sklearn --i-classifier Silva138.2_classifier-V34.qza --i-reads rep_seqs_nosingleton.qza --o-classification nosingleton_taxonomy.qza
+qiime taxa filter-table --i-table feature_table_nosingleton.qza --i-taxonomy nosingleton_taxonomy.qza --p-exclude Chloroplast,mitochondria --o-filtered-table feature_table_nosingleton_no_chloroplast.qza
+qiime taxa filter-seqs --i-sequences rep_seqs_nosingleton.qza --i-taxonomy nosingleton_taxonomy.qza --p-exclude Chloroplast,mitochondria --o-filtered-sequences rep_seqs_nosingleton_no_chloroplast.qza
+
+qiime feature-classifier classify-sklearn --i-classifier Silva138.2_classifier-V34.qza --i-reads rep_seqs_nosingleton_no_chloroplast.qza --o-classification silva_taxonomy_no_chloroplast.qza
+qiime metadata tabulate --m-input-file silva_taxonomy_no_chloroplast.qza --o-visualization silva_taxonomy_no_chloroplast.qzv
+qiime tools export --input-path silva_taxonomy_no_chloroplast.qza --output-path exported-feature-table-no-chloroplast
+qiime taxa barplot --i-table feature_table_nosingleton_no_chloroplast.qza --i-taxonomy silva_taxonomy_no_chloroplast.qza --m-metadata-file Metadata.tsv --o-visualization silva-taxa-barplot-no-chloroplast-all
+qiime feature-table filter-samples --i-table feature_table_nosingleton_no_chloroplast.qza --m-metadata-file Metadata_Water.tsv --o-filtered-table feature_table_nosingleton_no_chloroplast_water.qza
+qiime feature-table filter-samples --i-table feature_table_nosingleton_no_chloroplast.qza --m-metadata-file Metadata_Feces.tsv --o-filtered-table feature_table_nosingleton_no_chloroplast_feces.qza
+qiime taxa barplot --i-table feature_table_nosingleton_no_chloroplast_water.qza --i-taxonomy silva_taxonomy_no_chloroplast.qza --m-metadata-file Metadata_Water.tsv --o-visualization silva-taxa-barplot-no-chloroplast-water
+qiime taxa barplot --i-table feature_table_nosingleton_no_chloroplast_feces.qza --i-taxonomy silva_taxonomy_no_chloroplast.qza --m-metadata-file Metadata_Feces.tsv --o-visualization silva-taxa-barplot-no-chloroplast-feces
+qiime tools export --input-path feature_table_nosingleton_no_chloroplast.qza --output-path exported-feature-table-no-chloroplast
+qiime tools export --input-path rep_seqs_nosingleton_no_chloroplast.qza --output-path exported-feature-table-no-chloroplast
+cd exported-feature-table-no-chloroplast
+biom convert -i feature-table.biom -o ASV-table-no-chloroplast.txt --to-tsv --header-key taxonomy --output-metadata-id "ConsensusLineage"
+
+# Diversity analysis
+qiime phylogeny align-to-tree-mafft-fasttree \
+  --i-sequences rep_seqs_nosingleton.qza \
+  --o-alignment aligned-rep-seqs.qza \
+  --o-masked-alignment masked-aligned-rep-seqs.qza \
+  --o-tree unrooted-tree.qza \
+  --p-n-threads 16 \
+  --o-rooted-tree rooted-tree.qza
+
+qiime diversity alpha-rarefaction --i-table feature_table_nosingleton_no_chloroplast.qza --p-max-depth 25168 --p-metrics observed_features --p-metrics chao1 --p-metrics simpson --p-metrics shannon --m-metadata-file Metadata.tsv --p-min-depth 1000 --p-steps 10 --o-visualization alpha-diversity-rarefaction.qzv --verbose
+qiime diversity core-metrics-phylogenetic --i-phylogeny rooted-tree_no_chloroplast.qza --i-table feature_table_nosingleton_no_chloroplast.qza --p-sampling-depth 25168 --m-metadata-file Metadata.tsv --output-dir diversity-all --verbose
+cd diversity-all/
+qiime diversity alpha --i-table rarefied_table.qza --p-metric chao1 --o-alpha-diversity chao1_vector.qza
+qiime diversity alpha --i-table rarefied_table.qza --p-metric simpson --o-alpha-diversity simpson_vector.qza
+qiime diversity alpha-group-significance --i-alpha-diversity observed_features_vector.qza --m-metadata-file ../Metadata.tsv --o-visualization observed_features_groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity chao1_vector.qza --m-metadata-file ../Metadata.tsv --o-visualization chao1_groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity simpson_vector.qza --m-metadata-file ../Metadata.tsv --o-visualization simpson_groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity shannon_vector.qza --m-metadata-file ../Metadata.tsv --o-visualization shannon_groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity evenness_vector.qza --m-metadata-file ../Metadata.tsv --o-visualization evenness_groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity faith_pd_vector.qza --m-metadata-file ../Metadata.tsv --o-visualization faith_pd_groupsig.qzv --verbose
+qiime diversity beta-group-significance --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata.tsv --m-metadata-column Env --o-visualization weighted-unifrac-all-sig.qzv --p-pairwise
+qiime diversity adonis --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata.tsv --p-formula Env --o-visualization weighted-unifrac-all-adonis-sig.qzv
+
+qiime diversity alpha-rarefaction --i-table feature_table_nosingleton_no_chloroplast_water.qza --p-max-depth 25168 --p-metrics observed_features --p-metrics chao1 --p-metrics simpson --p-metrics shannon --m-metadata-file Metadata_Water.tsv --p-min-depth 100 --p-steps 10 --o-visualization alpha-diversity-rarefaction-water.qzv --verbose
+qiime phylogeny filter-tree --i-tree rooted-tree_no_chloroplast.qza --i-table feature_table_nosingleton_no_chloroplast_water.qza --o-filtered-tree rooted-tree-water.qza
+qiime diversity core-metrics-phylogenetic --i-phylogeny rooted-tree-water.qza --i-table feature_table_nosingleton_no_chloroplast_water.qza --p-sampling-depth 25168 --m-metadata-file Metadata_Water.tsv --output-dir diversity-water --verbose
+cd diversity-water
+qiime diversity alpha --i-table rarefied_table.qza --p-metric chao1 --o-alpha-diversity chao1_vector.qza
+qiime diversity alpha --i-table rarefied_table.qza --p-metric simpson --o-alpha-diversity simpson_vector.qza
+qiime diversity alpha-group-significance --i-alpha-diversity observed_features_vector.qza --m-metadata-file ../Metadata_Water.tsv --o-visualization observed-features-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity faith_pd_vector.qza --m-metadata-file ../Metadata_Water.tsv --o-visualization faith-pd-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity evenness_vector.qza --m-metadata-file ../Metadata_Water.tsv --o-visualization evenness-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity shannon_vector.qza --m-metadata-file ../Metadata_Water.tsv --o-visualization shannon-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity simpson_vector.qza --m-metadata-file ../Metadata_Water.tsv --o-visualization simpson-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity chao1_vector.qza --m-metadata-file ../Metadata_Water.tsv --o-visualization chao1-groupsig.qzv --verbose
+qiime diversity beta-group-significance --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --m-metadata-column Time --o-visualization weighted-unifrac-water-time-sig.qzv --p-pairwise
+qiime diversity beta-group-significance --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --m-metadata-column Site --o-visualization weighted-unifrac-water-site-sig.qzv --p-pairwise
+qiime diversity adonis --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --p-formula Time --o-visualization weighted-unifrac-water-time-adonis-sig.qzv
+qiime diversity adonis --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --p-formula Site --o-visualization weighted-unifrac-water-site-adonis-sig.qzv
+qiime diversity beta-group-significance --i-distance-matrix bray_curtis_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --m-metadata-column Time --o-visualization bray-curtis-water-time-sig.qzv --p-pairwise
+qiime diversity beta-group-significance --i-distance-matrix bray_curtis_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --m-metadata-column Site --o-visualization bray-curtis-water-site-sig.qzv --p-pairwise
+qiime diversity adonis --i-distance-matrix bray_curtis_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --p-formula Time --o-visualization bray-curtis-water-time-adonis-sig.qzv
+qiime diversity adonis --i-distance-matrix bray_curtis_distance_matrix.qza --m-metadata-file ../Metadata_Water.tsv --p-formula Site --o-visualization bray-curtis-water-site-adonis-sig.qzv
+cd ..
+
+
+qiime diversity alpha-rarefaction --i-table feature_table_nosingleton_no_chloroplast_feces.qza --p-max-depth 25168 --p-metrics observed_features --p-metrics chao1 --p-metrics simpson --p-metrics shannon --m-metadata-file Metadata_Feces.tsv --p-min-depth 100 --p-steps 10 --o-visualization alpha-diversity-rarefaction-feces.qzv --verbose
+qiime phylogeny filter-tree --i-tree rooted-tree_no_chloroplast.qza --i-table feature_table_nosingleton_no_chloroplast_feces.qza --o-filtered-tree rooted-tree-feces.qza
+qiime diversity core-metrics-phylogenetic --i-phylogeny rooted-tree-feces.qza --i-table feature_table_nosingleton_no_chloroplast_feces.qza --p-sampling-depth 25168 --m-metadata-file Metadata_Feces.tsv --output-dir diversity-feces --verbose
+cd diversity-feces/
+qiime diversity alpha --i-table rarefied_table.qza --p-metric chao1 --o-alpha-diversity chao1_vector.qza
+qiime diversity alpha --i-table rarefied_table.qza --p-metric simpson --o-alpha-diversity simpson_vector.qza
+qiime diversity alpha-group-significance --i-alpha-diversity observed_features_vector.qza --m-metadata-file ../Metadata_Feces.tsv --o-visualization observed-features-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity faith_pd_vector.qza --m-metadata-file ../Metadata_Feces.tsv --o-visualization faith-pd-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity evenness_vector.qza --m-metadata-file ../Metadata_Feces.tsv --o-visualization evenness-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity shannon_vector.qza --m-metadata-file ../Metadata_Feces.tsv --o-visualization shannon-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity simpson_vector.qza --m-metadata-file ../Metadata_Feces.tsv --o-visualization simpson-groupsig.qzv --verbose
+qiime diversity alpha-group-significance --i-alpha-diversity chao1_vector.qza --m-metadata-file ../Metadata_Feces.tsv --o-visualization chao1-groupsig.qzv --verbose
+qiime diversity beta-group-significance --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata_Feces.tsv --m-metadata-column Host --o-visualization weighted-unifrac-feces-host-sig.qzv --p-pairwise
+qiime diversity adonis --i-distance-matrix weighted_unifrac_distance_matrix.qza --m-metadata-file ../Metadata_Feces.tsv --p-formula Host --o-visualization weighted-unifrac-feces-host-adonis-sig.qzv
+
