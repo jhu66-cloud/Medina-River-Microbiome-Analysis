@@ -17,6 +17,9 @@ Raw sequencing data generated for this study are publicly available through the 
 1. 16S rRNA gene amplicon sequencing data: NCBI BioProject accession: PRJNA1442845
 2. Nanopore metagenomic sequencing data: NCBI BioProject accession: PRJNA1454989
 
+Sequencing data process:
+1. qiime_code.txt
+
 Python scripts:
 1. argo_amr_summary.py - Summarizes ARG richness, diversity, prevalence, drug-class profiles, plasmid-associated ARGs, and ARG-carrying taxa from ARGO outputs.
 2. argo_lineages_cpg_subtype_samples.py - Processes ARG lineage and subtype information and calculates or summarizes ARG abundance normalized as copies per Gbp.
